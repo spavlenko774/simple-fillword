@@ -3,62 +3,117 @@
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Unity Web Player | SimpleFillword</title>
+    <link rel="shortcut icon" href="TemplateData/favicon.ico" />
+    <link rel="stylesheet" href="TemplateData/style.css" />
+    <link rel="manifest" href="manifest.webmanifest" />
+
+    <!-- Наши стили, которые приводят поведение канваса к первому варианту -->
     <style>
       html, body {
-        margin: 0; padding: 0; height: 100%; background: #596275; overflow: hidden;
+        height: 100%;
+        margin: 0;
+        background: #596275;
+        overflow: hidden;
       }
+
+      /* Контейнер фиксируем на весь экран (фон тоже здесь) */
+      #unity-container {
+        position: fixed !important;
+        inset: 0 !important;
+        background: #596275;
+      }
+
+      /* Канвас центрируем по X на десктопе, растягиваем по высоте окна */
       #unity-canvas {
         display: block;
         background: #596275;
-        /* изначально фиксируем, дальше JS обновит размеры */
-        position: fixed;
-        top: 0; left: 50%;
+        position: fixed;       /* ключевое отличие */
+        top: 0;
+        left: 50%;
         transform: translateX(-50%);
       }
-      /* чтобы на мобильных пропала центровка по X — JS всё равно переустановит стили */
+
+      /* На мобильных центрирование по X не нужно — JS и так выставит 100% ширины */
       .mobile #unity-canvas {
-        left: 0; transform: none;
+        left: 0;
+        transform: none;
+      }
+
+      /* Прогресс-бар — поверх всего и по центру */
+      #unity-loading-bar {
+        position: fixed !important;
+        left: 50% !important;
+        top: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        width: min(420px, 80vw);
+        z-index: 10;
+        display: none; /* JS включает */
+      }
+
+      /* Баннеры предупреждений — поверх */
+      #unity-warning {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 20;
       }
     </style>
   </head>
   <body>
-    <!-- исходные размеры можно оставить любыми; их перекроет JS/CSS -->
-    <canvas id="unity-canvas" width="1080" height="1920" tabindex="-1"></canvas>
+    <div id="unity-container">
+      <!-- начальные размеры неважны — JS их перезапишет -->
+      <canvas id="unity-canvas" width="1080" height="1920" tabindex="-1"></canvas>
 
-    <script src="Build/simple-fillword.loader.js"></script>
+      <div id="unity-loading-bar">
+        <div id="unity-logo"></div>
+        <div id="unity-progress-bar-empty">
+          <div id="unity-progress-bar-full"></div>
+        </div>
+      </div>
+
+      <div id="unity-warning"></div>
+    </div>
+
     <script>
-      const canvas = document.getElementById('unity-canvas');
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      // Регистрация SW
+      window.addEventListener("load", function () {
+        if ("serviceWorker" in navigator) {
+          navigator.serviceWorker.register("ServiceWorker.js");
+        }
+      });
 
-      if (isMobile) {
-        document.body.classList.add('mobile');
-      }
+      const container = document.querySelector("#unity-container");
+      const canvas = document.querySelector("#unity-canvas");
+      const loadingBar = document.querySelector("#unity-loading-bar");
+      const progressBarFull = document.querySelector("#unity-progress-bar-full");
+      const warningBanner = document.querySelector("#unity-warning");
+
+      // ======== ЛОГИКА АДАПТИВНОГО КАНВАСА (как в первом варианте) ========
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      if (isMobile) document.body.classList.add("mobile");
 
       function sizeForDesktop() {
-        // высота = вся доступная высота окна
         const h = window.innerHeight;
         const w = Math.round(h * (9 / 16)); // портретное 9:16
 
-        // центрируем по горизонтали через left:50% + translateX(-50%) (задано в CSS)
-        canvas.style.width  = w + 'px';
-        canvas.style.height = h + 'px';
-        canvas.style.top = '0';
-        canvas.style.left = '50%';
-        canvas.style.transform = 'translateX(-50%)';
+        canvas.style.width = w + "px";
+        canvas.style.height = h + "px";
+        canvas.style.top = "0";
+        canvas.style.left = "50%";
+        canvas.style.transform = "translateX(-50%)";
       }
 
       function sizeForMobile() {
-        // надёжно получаем визуальную высоту (исправляет "прыжки" 100vh на iOS)
         const vw = window.innerWidth;
-        const vh = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
+        const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
 
-        canvas.style.width  = vw + 'px';
-        canvas.style.height = vh + 'px';
-        canvas.style.top = '0';
-        canvas.style.left = '0';
-        canvas.style.transform = 'none';
+        canvas.style.width = vw + "px";
+        canvas.style.height = vh + "px";
+        canvas.style.top = "0";
+        canvas.style.left = "0";
+        canvas.style.transform = "none";
       }
 
       function applyLayout() {
@@ -66,29 +121,79 @@
         else sizeForDesktop();
       }
 
-      // первичная установка
+      // Первичная установка размеров
       applyLayout();
 
-      // пересчёт при изменении окна/ориентации/зуме
-      window.addEventListener('resize', applyLayout);
-      window.addEventListener('orientationchange', () => setTimeout(applyLayout, 0));
+      // Пересчёт при изменениях окна/ориентации/зума
+      window.addEventListener("resize", applyLayout);
+      window.addEventListener("orientationchange", () => setTimeout(applyLayout, 0));
       if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', applyLayout);
+        window.visualViewport.addEventListener("resize", applyLayout);
+      }
+      // ================================================================
+
+      // Баннеры Unity
+      function unityShowBanner(msg, type) {
+        function updateBannerVisibility() {
+          warningBanner.style.display = warningBanner.children.length ? "block" : "none";
+        }
+        var div = document.createElement("div");
+        div.innerHTML = msg;
+        warningBanner.appendChild(div);
+        if (type == "error") div.style = "background: red; padding: 10px;";
+        else {
+          if (type == "warning") div.style = "background: yellow; padding: 10px;";
+          setTimeout(function () {
+            warningBanner.removeChild(div);
+            updateBannerVisibility();
+          }, 5000);
+        }
+        updateBannerVisibility();
       }
 
-      // Запуск Unity. По умолчанию Unity подгоняет рендер к размеру CSS-канваса каждый кадр.
-      createUnityInstance(canvas, {
+      // Viewport мета-тег для мобилок (как в стандартном шаблоне)
+      if (isMobile) {
+        const meta = document.createElement("meta");
+        meta.name = "viewport";
+        meta.content = "width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes";
+        document.head.appendChild(meta);
+      }
+
+      // Конфиг Unity
+      const buildUrl = "Build";
+      const loaderUrl = buildUrl + "/simple-fillword.loader.js";
+      const config = {
         arguments: [],
-        dataUrl: "Build/simple-fillword.data",
-        frameworkUrl: "Build/simple-fillword.framework.js",
-        codeUrl: "Build/simple-fillword.wasm",
+        dataUrl: buildUrl + "/simple-fillword.data",
+        frameworkUrl: buildUrl + "/simple-fillword.framework.js",
+        codeUrl: buildUrl + "/simple-fillword.wasm",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "DefaultCompany",
         productName: "SimpleFillword",
         productVersion: "1.0",
-        // matchWebGLToCanvasSize: true, // это дефолт; можно явно включить
-        // devicePixelRatio: 1, // опционально: зафиксировать DPI, если не нужна ретина
-      });
+        showBanner: unityShowBanner,
+        // matchWebGLToCanvasSize по умолчанию true — нам это и нужно
+        // devicePixelRatio: 1, // можешь раскомментировать, если не нужна «ретина»
+      };
+
+      // Показать прогресс-бар
+      loadingBar.style.display = "block";
+
+      // Подгрузить лоадер и стартануть Unity
+      const script = document.createElement("script");
+      script.src = loaderUrl;
+      script.onload = () => {
+        createUnityInstance(canvas, config, (progress) => {
+          progressBarFull.style.width = 100 * progress + "%";
+        })
+          .then(() => {
+            loadingBar.style.display = "none";
+          })
+          .catch((message) => {
+            alert(message);
+          });
+      };
+      document.body.appendChild(script);
     </script>
   </body>
 </html>
